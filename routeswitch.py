@@ -8,7 +8,7 @@ def get_GWs_by_LB(x):
     M=[] 
     elb=boto3.client('elb')
     ec2=boto3.client("ec2")
-    ElbGW=elb.describe_instance_health(LoadBalanceName=x)
+    ElbGW=elb.describe_instance_health(LoadBalancerName=x)
     GWs=ec2.describe_instances(Filters=[{"Name":"instance-id", "Values":[x['InstanceId'] for x in ElbGW['InstanceStates']]}])
     for re in GWs['Reservations']:
         for ins in re['Instances']:
@@ -16,12 +16,12 @@ def get_GWs_by_LB(x):
     return M
 
 
-def create_GRSAZ(x):
+def create_GRSAZ(gwtable):
     """takes a list of GWs and create a table with these gws, the route tables that refer to them, 
         the and the subnets associated with each such route table, with the subnet AZ
         """
     ec2=boto3.client("ec2")
-    rt2=ec2.describe_route_tables(Filters=[{'Name':'route.instance-id','Values':x}])
+    rt2=ec2.describe_route_tables(Filters=[{'Name':'route.instance-id','Values':[g[0] for g in gwtable]}])
 
     M=[]
     for r in rt2['RouteTables']: 
@@ -85,39 +85,36 @@ def ReplaceGWforRTinAWS (gwo,gwi,grsaz,rtid,gwtable):
     """
     ec2=boto3.client('ec2')
     rtd=ec2.describe_route_tables(RouteTableIds=[rtid])
-    x=0
-    for r in rtd['RouteTables'][0]['Routes']:
-        if r['InstanceID']==gwo:
-            response=ec2.replace_route(DestinationCidrBlock=r['DestinationCidrBlock'],RouteTableId=rtid,NetworkInterfaceId=[gw[4][len(gw[4])-1] for gw in gwtable if gw[0]==gwi].pop() )
-            if response['HTTPStatusCode']==200:
-                y=1
-            else:
-                y=0
-        x=x*y
-    return x
-
+    for r in rtd['RouteTables'][0]['Routes']:    
+      if 'InstanceId' in r:      
+        if r['InstanceId']==gwo:
+            response=ec2.replace_route(DestinationCidrBlock=r['DestinationCidrBlock'],RouteTableId=rtid,NetworkInterfaceId=[gw[4][len(gw[4])-1][1] for gw in gwtable if gw[0]==gwi].pop() )
+            print(r['InstanceId'],': ', response)
+       
 def RTsPointingtoDeadGWs(gwtable,grsaz):
     """provides a dict of route tables that have routes currently pointing to dead GWs, with the list of those GWs
     """
     
     S={}
     for r in list(set([g[1] for g in grsaz])): 
-        if sum([1 for x in grasz if x[1]==r and [y[1] for y in gwtable if y[0]==x[0]].pop()!='InService'])>0:
+        if sum([1 for x in grsaz if x[1]==r and [y[1] for y in gwtable if y[0]==x[0]].pop()!='InService'])>0:
                 M=[g[0] for g in grsaz if g[1]==r]
-                S.update({r[1]:M})          
+                S.update({r:M})          
     return S
 
     
-def DealWithDownGW (elbname):
+def DealWithDownGW(elbname):
     """main function for dealing with routes with dead GWs, to be invoked on down health notification from an elb
     """
-    gwtable=get_GWs_by_LB('myelb')
-    if sum([1 for g in gwtable if g[1]=='InService']>0):
+    gwtable=get_GWs_by_LB(elbname)
+    if sum([1 for g in gwtable if g[1]=='InService'])>0:
         grsaz=create_GRSAZ(gwtable)
         RT=RTsPointingtoDeadGWs(gwtable,grsaz)
+        print('RT:  ',RT)
         if len(RT)>0:
             DRT=Dominant_AZ(grsaz)
-            for r in list(RT):
+            for r in RT:
+ #               print('r: ',r)
                 gwi=BestGWforAZ(DRT[r],grsaz,gwtable) #we really want one gw per route table
                 for g in RT[r]:
                     ReplaceGWforRTinAWS(g,gwi,grsaz,r,gwtable)
@@ -131,10 +128,10 @@ def DealWithDownGW (elbname):
         print("No GWs are up. Quiting")
             
  
-def DealwithUPGW(elbname):
+def DealWithUpGW(elbname):
     """main function for dealing with new GWs. it reoptimizes route distribution across GWs, to be invoked on up health notification from elb
     """
-    gwtable=get_GWs_by_LB('myelb')
+    gwtable=get_GWs_by_LB(elbname)
     grsaz=create_GRSAZ(gwtable)
     UnusedGWs=GetUnusedGWs(gwtable,grsaz)
     if len(UnusedGWs)>0:
@@ -154,13 +151,19 @@ def GetUnusedGWs(gwtable,grsaz):
 
 def UseNewGW(g,grsaz,gwtable):
     DRT=Dominant_AZ(grsaz)
+ #   print('DRT: ', DRT)
+ #   print('grsaz: ',grsaz)
+ #   print('gwtable: ', gwtable)
+ #   print('g: ',g)
     for r in DRT: 
+        # print('r: ',r,'  logic: ',  (DRT[r]==g[2] and sum([1 for x in grsaz if x[1]==r and [gg[2] for gg in gwtable if gg[0]==x[0]].pop()!=g[2]])>0) or sum([1 for gw in grsaz if gw[1]==r and [gg[1] for gg in gwtable if gg[0]==gw[0]].pop()!='InService'])>0 )
         if (DRT[r]==g[2] and sum([1 for x in grsaz if x[1]==r and [gg[2] for gg in gwtable if gg[0]==x[0]].pop()!=g[2]])>0) or sum([1 for gw in grsaz if gw[1]==r and [gg[1] for gg in gwtable if gg[0]==gw[0]].pop()!='InService'])>0:
             for gwo in set([gw[0] for gw in grsaz if gw[1]==r]):
-                ReplaceGWforRTinAWS (gwo,g,grsaz,r,gwtable)
-                grsaz=ReplaceGWsforRTinGRSAZ(gwo,g,grsaz,r)
+                ReplaceGWforRTinAWS (gwo,g[0],grsaz,r,gwtable)
+                grsaz=ReplaceGWsforRTinGRSAZ(gwo,g[0],grsaz,r)
                 
      
+DealWithUpGW("Check-Poi-ElasticL-1F7NSG2C2RFMJ")
         
 
 
