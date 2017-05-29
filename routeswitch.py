@@ -40,17 +40,17 @@ def create_GRSAZ(x):
     return MM
 
 
-def Dominant_AZ(x):
+def Dominant_AZ(grsaz):
     """Takes the GRSAZ list and returns another dict with the dominant AZ for reach route table
     """
     
     M={}
-    RTs=list(set([y[1] for y in x]))
+    RTs=list(set([y[1] for y in grsaz]))
     for rt in RTs:
-        AZs=list(set([y[3] for y in x if y[1]==rt]))
+        AZs=list(set([y[3] for y in grsaz if y[1]==rt]))
         MM=[]
         for az in AZs:
-            MM.append([az, sum([1 for y in x if (y[1]==rt and y[3]==az)])])
+            MM.append([az, sum([1 for y in grsaz if (y[1]==rt and y[3]==az)])])
         mini=min([m[0] for m in MM if m[1]==max([m[1] for m in MM])]) #we take the first AZ that has the maximal number of subnets
         M.update({rt:mini})  
     return M
@@ -67,7 +67,7 @@ def BestGWforAZ(az,grsaz,gwtable):
     SS={}
     for s in S:
         SS.update({s[0]:sum([1 for g in grsaz if g[0]==s[0]])})            
-    mini=min([s[0] for s in S if SS[s[0]]==min(SS.values())])
+    mini=min([s[0] for s in S if SS[s[0]]==min(SS.values())]) # we're taking the first GW that has the minimal number of subnets associated with it
    
     return mini
 
@@ -102,8 +102,9 @@ def RTsPointingtoDeadGWs(gwtable,grsaz):
     
     S={}
     for r in list(set([g[1] for g in grsaz])): 
-        M=[g[0] for g in grsaz if g[1]==r]
-        S.update({r[1]:M})          
+        if sum([1 for x in grasz if x[1]==r and [y[1] for y in gwtable if y[0]==x[0]].pop()!='InService'])>0:
+                M=[g[0] for g in grsaz if g[1]==r]
+                S.update({r[1]:M})          
     return S
 
     
@@ -135,34 +136,34 @@ def DealwithUPGW(elbname):
     """
     gwtable=get_GWs_by_LB('myelb')
     grsaz=create_GRSAZ(gwtable)
-    UnusedGWs=GetUnusedGWs(gwtable,graz)
+    UnusedGWs=GetUnusedGWs(gwtable,grsaz)
     if len(UnusedGWs)>0:
         for g in UnusedGWs:
-            UseGWinAZ(g,grsaz,gwtable)
-            UseGWoutAZ(g,grsaz,gwtable)
+            UseNewGW(g,grsaz,gwtable)
         print('finished up gatewaying. Amen')
         
        
     else:
         print("No GWs are idle. Quiting")
     
- 
+
+def GetUnusedGWs(gwtable,grsaz):
     
-    gwpnw=GetunusedGW(gwtable,grsaz)
-    if len(gwpnw)>0:
-        DRT=Dominant_AZ(grsaz)
-        
+    M=[g for g in gwtable if sum([1 for gw in grsaz if g[0]==gw[0]])==0 and g[1]=='InService']
+    return M
+
+def UseNewGW(g,grsaz,gwtable):
+    DRT=Dominant_AZ(grsaz)
+    for r in DRT: 
+        if (DRT[r]==g[2] and sum([1 for x in grsaz if x[1]==r and [gg[2] for gg in gwtable if gg[0]==x[0]].pop()!=g[2]])>0) or sum([1 for gw in grsaz if gw[1]==r and [gg[1] for gg in gwtable if gg[0]==gw[0]].pop()!='InService'])>0:
+            for gwo in set([gw[0] for gw in grsaz if gw[1]==r]):
+                ReplaceGWforRTinAWS (gwo,g,grsaz,r,gwtable)
+                grsaz=ReplaceGWsforRTinGRSAZ(gwo,g,grsaz,r)
                 
-            
-    
-    
+     
+        
 
 
-
-GW= ['i-6b376bf2','i-03fe54e06ec41c91d']          
-aaa=create_GRSAZ(GW) 
-bbb=(Dominant_AZ(aaa))
-print(aaa)
-print(bbb)        
+     
            
 
