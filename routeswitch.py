@@ -1,6 +1,13 @@
 import boto3
+# please replace the name of the elb with the one that monitors your GW
+elbname='y elb name'
+# do not change below
 
-
+def lambda_handler(event, context):
+    DealWithDownGW(elbname)
+    DealWithUpGW(elbname)
+    return 'Hello from Lambda'
+    
 
 def get_GWs_by_LB(x):
     """retrieves fron AWS all the GWs that are associated with an elb and arranges in a GW, GW health, AZ, VPC,eth0 and eth1 table
@@ -22,7 +29,7 @@ def create_GRSAZ(gwtable):
         """
     ec2=boto3.client("ec2")
     rt2=ec2.describe_route_tables(Filters=[{'Name':'route.instance-id','Values':[g[0] for g in gwtable]}])
-
+#    print('rt2: ',rt2)
     M=[]
     for r in rt2['RouteTables']: 
         for s in r['Associations']:
@@ -89,7 +96,8 @@ def ReplaceGWforRTinAWS (gwo,gwi,grsaz,rtid,gwtable):
       if 'InstanceId' in r:      
         if r['InstanceId']==gwo:
             response=ec2.replace_route(DestinationCidrBlock=r['DestinationCidrBlock'],RouteTableId=rtid,NetworkInterfaceId=[gw[4][len(gw[4])-1][1] for gw in gwtable if gw[0]==gwi].pop() )
-            print(r['InstanceId'],': ', response)
+            print('in route:', rtid, ' replacing gw: ', gwo,' with gw: ', gwi)
+#            print(r['InstanceId'],': ', response)
        
 def RTsPointingtoDeadGWs(gwtable,grsaz):
     """provides a dict of route tables that have routes currently pointing to dead GWs, with the list of those GWs
@@ -110,7 +118,6 @@ def DealWithDownGW(elbname):
     if sum([1 for g in gwtable if g[1]=='InService'])>0:
         grsaz=create_GRSAZ(gwtable)
         RT=RTsPointingtoDeadGWs(gwtable,grsaz)
-        print('RT:  ',RT)
         if len(RT)>0:
             DRT=Dominant_AZ(grsaz)
             for r in RT:
@@ -119,11 +126,12 @@ def DealWithDownGW(elbname):
                 for g in RT[r]:
                     ReplaceGWforRTinAWS(g,gwi,grsaz,r,gwtable)
                     grsaz=ReplaceGWsforRTinGRSAZ(g,gwi,grsaz,r)
-        if sorted(grsaz)==sorted(create_GRSAZ(gwtable)):
-            print('finished down gatewaying. Amen')
+            if sorted(grsaz)==sorted(create_GRSAZ(gwtable)):
+                print('finished down gatewaying. Amen')
+            else:
+                print('more orphan routes need to be dealth with. please run again')
         else:
-            print('waiting to run again')
-            DealWithDownGW(elbname)
+            print('No orphan routes')
     else:
         print("No GWs are up. Quiting")
             
@@ -134,6 +142,9 @@ def DealWithUpGW(elbname):
     gwtable=get_GWs_by_LB(elbname)
     grsaz=create_GRSAZ(gwtable)
     UnusedGWs=GetUnusedGWs(gwtable,grsaz)
+#    print('grsaz: ', grsaz)
+#    print('gwtable: ', gwtable)
+#    print(UnusedGWs)
     if len(UnusedGWs)>0:
         for g in UnusedGWs:
             UseNewGW(g,grsaz,gwtable)
@@ -156,14 +167,15 @@ def UseNewGW(g,grsaz,gwtable):
  #   print('gwtable: ', gwtable)
  #   print('g: ',g)
     for r in DRT: 
-        # print('r: ',r,'  logic: ',  (DRT[r]==g[2] and sum([1 for x in grsaz if x[1]==r and [gg[2] for gg in gwtable if gg[0]==x[0]].pop()!=g[2]])>0) or sum([1 for gw in grsaz if gw[1]==r and [gg[1] for gg in gwtable if gg[0]==gw[0]].pop()!='InService'])>0 )
+ #       print('r: ',r,'  logic: ',  (DRT[r]==g[2] and sum([1 for x in grsaz if x[1]==r and [gg[2] for gg in gwtable if gg[0]==x[0]].pop()!=g[2]])>0) or sum([1 for gw in grsaz if gw[1]==r and [gg[1] for gg in gwtable if gg[0]==gw[0]].pop()!='InService'])>0 )
         if (DRT[r]==g[2] and sum([1 for x in grsaz if x[1]==r and [gg[2] for gg in gwtable if gg[0]==x[0]].pop()!=g[2]])>0) or sum([1 for gw in grsaz if gw[1]==r and [gg[1] for gg in gwtable if gg[0]==gw[0]].pop()!='InService'])>0:
             for gwo in set([gw[0] for gw in grsaz if gw[1]==r]):
                 ReplaceGWforRTinAWS (gwo,g[0],grsaz,r,gwtable)
                 grsaz=ReplaceGWsforRTinGRSAZ(gwo,g[0],grsaz,r)
                 
+                
      
-DealWithUpGW("Check-Poi-ElasticL-1F7NSG2C2RFMJ")
+
         
 
 
