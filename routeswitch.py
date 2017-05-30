@@ -1,6 +1,9 @@
+
 import boto3
-# please replace the name of the elb with the one that monitors your GW
-elbname='y elb name'
+# Replace the name of the elb with the one that monitors your GW
+
+elbname='MyELBName'
+
 # do not change below
 
 def lambda_handler(event, context):
