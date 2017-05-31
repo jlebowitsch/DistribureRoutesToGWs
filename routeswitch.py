@@ -1,14 +1,30 @@
 
 import boto3
+
+
+###########################################################################################################################################################
 # Replace the name of the elb with the one that monitors your GW
 
 elbname='MyELBName'
 
+# there are 2 algorithms for deciding the distribution of GWs to Routes. 
+# If you choose 1 here you'll get better distirbution of the load accross your gateways. 
+# Specifically, if you have a number of subnets in some AZ, each with its own route table, then, if a new GW is added to that AZ then
+# the route tables of some of these subnets will be changed to point to the new GW. 
+
+UseFancyDecision=1 
+
 # do not change below
+##########################################################################################################################################################
+
+
 
 def lambda_handler(event, context):
-    DealWithDownGW(elbname)
-    DealWithUpGW(elbname)
+    if UseFancyDecision==1:
+        RouteSwitchv2(elbname)
+    else:    
+        DealWithDownGW(elbname)
+        DealWithUpGW(elbname)
     return 'Hello from Lambda'
     
 
@@ -177,11 +193,59 @@ def UseNewGW(g,grsaz,gwtable):
                 grsaz=ReplaceGWsforRTinGRSAZ(gwo,g[0],grsaz,r)
                 
                 
-     
+def RouteSwitchv2(elbname):
+     gwtable=get_GWs_by_LB(elbname)
+     if sum([1 for g in gwtable if g[1]=='InService'])>0: 
+         grsaz=create_GRSAZ(gwtable)
+         if len(grsaz)>0:
+             for rt in set([r[1] for r in grsaz]):
+                 gwi=OptimalGWforRT(rt,gwtable,grsaz)
+                 if gwi != 'Current':
+                     for g in set([g[0] for g in grsaz if g[1]==rt]):
+                        ReplaceGWforRTinAWS(g,gwi,grsaz,rt,gwtable)
+                        grsaz=ReplaceGWsforRTinGRSAZ(g,gwi,grsaz,rt)
+                 else:
+                     print('route table ',rt, ' is already optimal in using the gateway: ', set([r[0] for r in grsaz if r[1]==rt]))
+         else:
+             print('No Routes are associated with any of the GWs monitored by the ELB' )
+     else:
+         print ("No GWs are up. Quiting")
 
+         
+def OptimalGWforRT(rt,gwtable,grsaz):
+    
+    response='Current'
+    DRT=Dominant_AZ(grsaz)
+    GWsofRT=set([x[0] for x in grsaz if x[1]==rt]) # the set of gateways associated with the RT as someone could add there more than one by mistake
+    RTinAZ = sum([1 for y in gwtable if y[0] in GWsofRT and (y[1]!='InService' or y[2]!=DRT[rt])])==0 # a boolean to determine if the RT currently already targets all inservice GW in the same AZ
+    InAZGWs=[g for g in gwtable if g[1]=='InService' and g[2]==DRT[rt]] # the set of GWs Inseervice in the AZ
+    RTSubnetCount={r:sum([1 for rr in grsaz if rr[1]==r]) for r in set([rr[1] for rr in grsaz])} 
+    GWSubnetCount={g:sum([1 for rr in grsaz if rr[0]==g]) for g in [gg[0] for gg in gwtable]}
+    AZRTSubnetCount=sum([RTSubnetCount[r] for r in DRT if DRT[r]==DRT[rt]])
+    if RTinAZ and sum([1 for x in InAZGWs if not x[0] in GWsofRT])>0: # that is, if the route table is in the AZ and there are some GWs in the AZ that are not already targeted by the route table
+        if sum([1 for g in GWsofRT if (GWSubnetCount[g]-RTSubnetCount[rt]) > AZRTSubnetCount/len(InAZGWs)])>0: # if there are "busier than than average GWs" associated with the route table
+            print('route ', rt, 'is servered by GW in the right AZ but there are alternative GWs.')
+            M=[[GWSubnetCount[x[0]],x[0]] for x in InAZGWs if (GWSubnetCount[x[0]] + RTSubnetCount[rt]) < max([GWSubnetCount[x] for x in GWsofRT])]
+            if len(M)>0:
+                response=min(M)[1]
+            
+            else:
+                print('No GW is better for ', rt)
+    elif not RTinAZ:
+        if len(InAZGWs)>0:
+            print('route ', rt, 'is not servered by GW in the right AZ and there are alternative GWs in AZ.')
+            M=[[GWSubnetCount[x[0]],x[0]] for x in InAZGWs]
+            response=min(M)[1]
+       
+        elif sum([1 for g in GWsofRT if [x[1] for x in gwtable if g==x[0]].pop()!='InService'])>0:
+            print('route ', rt, 'has GWs OutofService. There are GWs in Service outside its AZ')      
+            M=[[GWSubnetCount[x[0]],x[0]] for x in gwtable if x[1]=='InService']
+            response=min(M)[1]
+                  
+        elif sum([1 for g in GWsofRT if (GWSubnetCount[g]-RTSubnetCount[rt]) > len(set([x[2] for x in grsaz]))/len([g for g in gwtable if g[1]=='InService'])])>0:
+            print('route ', rt, 'has a busy GW in another AZ and there are no GWs in its AZ . looking for less busy GWs')     
+            M=[[GWSubnetCount[x[0]],x[0]] for x in gwtable if x[1]=='InService' and GWSubnetCount[x[0]] + RTSubnetCount[rt] < max([GWSubnetCount[x] for x in GWsofRT])]
+            response=min(M)[1]
+    return response
         
-
-
-     
-           
-
+        
