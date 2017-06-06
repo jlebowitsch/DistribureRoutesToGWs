@@ -4,9 +4,10 @@
 # 1. "elbname" ...this is the name of the ELB monitoring your gateway
 # 2. "inputsubnets"  ....this is the list of subnets behind the gateways
 # 3. "Routetargets" ....this is the list of route prefixes for destinations you want to be routed through the gateways.  
+
+elbname='myELB'
 inputsubnets=['subnet-135xxxxx','subnet-cbaxxxxx','subnet-f8bxxxxx']
 Routetargets=['0.0.0.0/0','192.168.2.0/29']
-elbname='myELB'
 
 # do not change below
 ##########################################################################################################################################################
@@ -21,11 +22,10 @@ def lambda_handler(event, context):
     return 'Hello from Lambda'
     
 
-
-def RouteSwitchv2(elbname,inputsubnets,Routetables):
+def RouteSwitchv2(elbname,inputsubnets,Routetargets):
      gwtable=get_GWs_by_LB(elbname)
      if sum([1 for g in gwtable if g[1]=='InService'])>0: 
-         grsaz=createGRSAZ(gwtable,inputsubnets,Routetables)
+         grsaz=createGRSAZ(gwtable,inputsubnets,Routetargets)
          for rt in set([r[1] for r in grsaz]):
              gwi=OptimalGWforRT(rt,gwtable,grsaz)
              if gwi != 'Current':
@@ -50,20 +50,33 @@ def get_GWs_by_LB(elbname):
     GWs=ec2.describe_instances(Filters=[{"Name":"instance-id", "Values":[x['InstanceId'] for x in ElbGW['InstanceStates']]}])
     for re in GWs['Reservations']:
         for ins in re['Instances']:
-            M.append([ins['InstanceId'], [y['State'] for y in ElbGW['InstanceStates'] if y['InstanceId']==ins['InstanceId']].pop(),ins['Placement']['AvailabilityZone'],ins['VpcId'],sorted([[eni['Attachment']['DeviceIndex'],eni['NetworkInterfaceId']] for eni in ins['NetworkInterfaces']])])            
+            M.append([ins['InstanceId'], [y['State'] for y in ElbGW['InstanceStates'] if y['InstanceId']==ins['InstanceId']].pop(),ins['Placement']['AvailabilityZone'],ins['VpcId'],sorted([[eni['Attachment']['DeviceIndex'],eni['NetworkInterfaceId']] for eni in ins['NetworkInterfaces']]),ins['SubnetId']])            
     return M
 
             
 def createGRSAZ(gwtable,inputsubnets,Routetargets):
-    #find all the routing tables already associated with any healthy gws and their associated subnets
+    
     ec2=boto3.client("ec2")
-    rt2=ec2.describe_route_tables(Filters=[{'Name':'association.subnet-id','Values':inputsubnets}])
+    elb=boto3.client('elb')
+   
+    #clean the inputsubnets
+    vpcid=elb.describe_load_balancers(LoadBalancerNames=[elbname])['LoadBalancerDescriptions'][0]['VPCId']
+    subnetsvpc=ec2.describe_subnets(Filters=[{'Name':"vpc-id", 'Values':[vpcid]}])
+    notrealsubnets=set(inputsubnets)-set([s['SubnetId'] for s in subnetsvpc['Subnets']])
+    if len(notrealsubnets)>0:
+        print('the following are not real subnets in your VPC: ',notrealsubnets)
+    cleaninputsubnets=list(set(inputsubnets)-notrealsubnets)
+    
+    #find all the routing tables already associated with any healthy gws and their associated subnets  
+    rt2=ec2.describe_route_tables(Filters=[{'Name':'association.subnet-id','Values':cleaninputsubnets}])
+    #disassociate subnets from RTs if used by gateway ...later
+    
     M=[]
-    for r in rt2['RouteTables']: 
+    for r in rt2['RouteTables']:
         if set(Routetargets)<=set([rr['DestinationCidrBlock'] for rr in r['Routes'] if 'InstanceId' in rr.keys() and rr['InstanceId'] in [g[0] for g in gwtable if g[1]=='InService']]):
-            for s in r['Associations']:
-                z=min([n for n in range(len(r['Routes'])) if 'InstanceID' in r[n].keys() and r[n]['InstanceId'] in [g[0] for g in gwtable]])
-                M.append(tuple([r[z]['InstanceId'],
+            for s in [ass for ass in r['Associations'] if ass['SubnetId'] in cleaninputsubnets]:
+                goodinstance=[rr['InstanceId'] for rr in r['Routes'] if 'InstanceId' in rr.keys() and rr['InstanceId'] in [g[0] for g in gwtable if g[1]=='InService']].pop()
+                M.append(tuple([goodinstance,
                                     r['RouteTableId'],
                                     s['SubnetId'],
                                     1]))
@@ -71,18 +84,15 @@ def createGRSAZ(gwtable,inputsubnets,Routetargets):
         # add route tables that have the routes but no live GWs with index 2....we'll reuse these RTs and routes
         elif set(Routetargets)<=set([rr['DestinationCidrBlock'] for rr in r['Routes']]):
             for s in r['Associations']:
-               z=min([n for n in range(len(r['Routes'])) if 'InstanceId' in r[n].keys() and r[n]['InstanceId'] in [g[0] for g in gwtable]])
-               M.append(tuple([r[z]['InstanceId'],
+               M.append(tuple(['NoGW',
                                 r['RouteTableId'],
                                 s['SubnetId'],
                                 2]))  
   
     #add new RTs for any subnets that are not in the table. mark the GWs as NoGW and index at 3 so that we know that we need to add new routes
-    subnets1=ec2.describe_subnets(Filters=[{'Name':"subnet-id",'Values':list(set([m[2] for m in M])|set(inputsubnets))}])
+    subnets1=ec2.describe_subnets(Filters=[{'Name':"subnet-id",'Values':list(set([m[2] for m in M])|set(cleaninputsubnets))}])
     subnets2={s['SubnetId']:s for s in subnets1['Subnets']}
-    elb=boto3.client('elb')
-    vpcid=elb.describe_load_balancers(LoadBalancerNames=[elbname])['LoadBalancerDescriptions'][0]['VPCId']
-    for sub in inputsubnets:
+    for sub in cleaninputsubnets:
         if not (sub in [m[2] for m in M]):
             if subnets2[sub]['VpcId']==vpcid:
                 rass=[]
@@ -112,7 +122,7 @@ def OptimalGWforRT(rt,gwtable,grsaz):
     
     response='Current'
     DRT=Dominant_AZ(grsaz)
-    RTIsUp=[g[3] for g in grsaz if g[1]==rt].pop()==1
+    RTIsUp=[g[4] for g in grsaz if g[1]==rt].pop()==1
     GWsofRT=set([x[0] for x in grsaz if x[1]==rt]) # the set of gateways associated with the RT as someone could add there more than one by mistake
     RTinAZ = sum([1 for y in gwtable if y[0] in GWsofRT and (y[1]!='InService' or y[2]!=DRT[rt])])==0 # a boolean to determine if the RT currently already targets all inservice GW in the same AZ
     InAZGWs=[g for g in gwtable if g[1]=='InService' and g[2]==DRT[rt]] # the set of GWs Inseervice in the AZ
@@ -198,15 +208,6 @@ def ReplaceGWforRTinAWS (gwo,gwi,grsaz,rtid,gwtable):
             ec2.create_route(DestinationCidrBlock=s, RouteTableId=rtid, NetworkInterfaceId=[gw[4][len(gw[4])-1][1] for gw in gwtable if gw[0]==gwi].pop())
         print('in route table:', rtid, ' added new routes with gw: ', gwi)
        
-def RTsPointingtoDeadGWs(gwtable,grsaz):
-    """provides a dict of route tables that have routes currently pointing to dead GWs, with the list of those GWs
-    """
-    
-    S={}
-    for r in list(set([g[1] for g in grsaz])): 
-        if sum([1 for x in grsaz if x[1]==r and [y[1] for y in gwtable if y[0]==x[0]].pop()!='InService'])>0:
-                M=[g[0] for g in grsaz if g[1]==r]
-                S.update({r:M})          
-    return S
+
 
              

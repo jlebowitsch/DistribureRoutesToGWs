@@ -1,6 +1,8 @@
 ## routeswitchbysubnet for Autoscaling groups of Gateways
 
 The purpose of the script **routeswitchbysubnet** is to allow, in AWS VPCs, the automatic reassignments of route-targets to healthy gateways, when these gateways are monitored by an ELB.
+The typical use case is a Check Point vSEC Autoscaling group. By default these gateways are not configured as targets in any routes, and so they're not used for the protection of outbound traffic, except through a proxy. By using this script you'll be able to have the members configured as the default gateways for internet-bound (or other) traffic, and thus protect such traffic flow.
+The way the script works is to maintain for each protected subnet a route table that points to a healthy gateway in the ASG. As gateways are added or removed, the script will detect it (in about 1 min) and will reassign route tables as necessary to the least used gateway. 
 
 
 
@@ -9,7 +11,9 @@ The purpose of the script **routeswitchbysubnet** is to allow, in AWS VPCs, the 
 - Have gateways that act as routers (like Check Point vSEC gateways) up and running.  
 - if the gateway has more than one ENI, make sure that the gateway knows to route to the subnets behind it through ethN where N is maximal. E.g., if the gateway has eth0 and eth1, make sure that each of the gateways knows that traffic to each of the protected subnets should be forwarded through eth1
 - Set up an ELB to monitor the gateways. (the gateways can be part of an Autoscaling Group or not)
-- Create an cloudwatch alarm that will send notification to some SNS topic if the number of unhealthy instances is larger than 0. Add to the alarm a notification, to the same topic, if the status changes back to OK
+- Create an SNS topic and associate it with the following:
+    - cloudwatch alarm associated with the ELB that will send notification if the number of unhealthy instances is larger than 0. Add to the alarm a notification, to the same topic, if the status changes back to OK
+    - a notification set on the Autoscaling group itself whenever an instance is added or removed	
 - Create a lambda function that uses the script routeswitchbysubnet.py, and have it triggered by notifications to that SNS topic 
 - Change the value of the following variables that you see in the begining of the script:
     - *elbname*: the name of the loadbalancer that's monitoring your gateways (e.g., 'myELB')
