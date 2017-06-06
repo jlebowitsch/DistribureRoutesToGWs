@@ -12,9 +12,9 @@ The purpose of the script **routeswitchbysubnet** is to allow, in AWS VPCs, the 
 - Create an cloudwatch alarm that will send notification to some SNS topic if the number of unhealthy instances is larger than 0. Add to the alarm a notification, to the same topic, if the status changes back to OK
 - Create a lambda function that uses the script routeswitchbysubnet.py, and have it triggered by notifications to that SNS topic 
 - Change the value of the following variables that you see in the begining of the script:
-..- *elbname*: the name of the loadbalancer that's monitoring your gateways (e.g., 'myELB')
-..- *inputsubnets*: the list of subnets that needs to route through the gateways (e.g., ['subnet-1','subnet-2'])
-..- *Routetargets*: the list of route prefixes traffic to which needs to flow through the gateways (e.g., ['0.0.0.0/0','10.1.0.0/16'])
+	..- *elbname*: the name of the loadbalancer that's monitoring your gateways (e.g., 'myELB')
+	..- *inputsubnets*: the list of subnets that needs to route through the gateways (e.g., ['subnet-1','subnet-2'])
+	..- *Routetargets*: the list of route prefixes traffic to which needs to flow through the gateways (e.g., ['0.0.0.0/0','10.1.0.0/16'])
 - Change the "inputsubnets" variable
 - By default the script uses a more advanced GW matching algorithm for each route. If you want to revert to an earlier version choose a value other than 1 to the param UseFancyDecision
 
