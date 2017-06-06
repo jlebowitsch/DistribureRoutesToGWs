@@ -4,9 +4,10 @@
 # 1. "elbname" ...this is the name of the ELB monitoring your gateway
 # 2. "inputsubnets"  ....this is the list of subnets behind the gateways
 # 3. "Routetargets" ....this is the list of route prefixes for destinations you want to be routed through the gateways.  
+
+elbname='myELB'
 inputsubnets=['subnet-135xxxxx','subnet-cbaxxxxx','subnet-f8bxxxxx']
 Routetargets=['0.0.0.0/0','192.168.2.0/29']
-elbname='myELB'
 
 # do not change below
 ##########################################################################################################################################################
