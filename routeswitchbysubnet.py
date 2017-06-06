@@ -1,10 +1,12 @@
 
 ###########################################################################################################################################################
-# to run the script in Lambda please create the following three environmental parameters
-# 1. "elbname" with value '<MyELBName>'...this is the name of the ELB monitoring your gateway
-# 2. "inputsubnets" with values in the format '['subnet1','subnet2'] ....this is the list of subnets behind the gateways
-# 3. "Routetargets" with value in the format'['0.0.0.0/0', '192.168.1.0/24']....this is the list of route prefixes for destinations you want to be routed through the gateways.  
-
+# to run the script in Lambda please change the value of  the following three  parameters
+# 1. "elbname" ...this is the name of the ELB monitoring your gateway
+# 2. "inputsubnets"  ....this is the list of subnets behind the gateways
+# 3. "Routetargets" ....this is the list of route prefixes for destinations you want to be routed through the gateways.  
+inputsubnets=['subnet-135xxxxx','subnet-cbaxxxxx','subnet-f8bxxxxx']
+Routetargets=['0.0.0.0/0','192.168.2.0/29']
+elbname='myELB'
 
 # do not change below
 ##########################################################################################################################################################
@@ -12,13 +14,6 @@
 
 
 import boto3
-import os
-
-
-
-elbname=os.environ['elbname']
-inputsubnets=os.environ['inputsubnets']
-Routetargets=os.environ['Routetargets']
 
 
 def lambda_handler(event, context):
@@ -26,56 +21,7 @@ def lambda_handler(event, context):
     return 'Hello from Lambda'
     
 
-                 
-            
-def createGRSAZ(gwtable,inputsubnets,Routetargets):
-    #find all the routing tables already associated with any healthy gws and their associated subnets
-    ec2=boto3.client("ec2")
-    rt2=ec2.describe_route_tables(Filters=[{'Name':'association.subnet-id','Values':[inputsubnets]}])
-    M=[]
-    for r in rt2['RouteTables']: 
-        if set(Routetargets)<=set([rr['DestinationCidrBlock'] for rr in r['Routes'] if rr['InstanceId'] in [g[0] for g in gwtable if g[1]=='InService']]):
-            for s in r['Associations']:
-                z=min([n for n in range(len(r['Routes'])) if 'InstanceID' in r[n].keys() and r[n]['InstanceId'] in [g[0] for g in gwtable]])
-                M.append(tuple([r[z]['InstanceId'],
-                                    r['RouteTableId'],
-                                    s['SubnetId'],
-                                    1]))
-    
-        # add route tables that have the routes but no live GWs with index 2....we'll reuse these RTs and routes
-        elif set(Routetargets)<=set([rr['DestinationCidrBlock'] for rr in r['Routes']]):
-            for s in r['Associations']:
-               z=min([n for n in range(len(r['Routes'])) if 'InstanceID' in r[n].keys() and r[n]['InstanceId'] in [g[0] for g in gwtable]])
-               M.append(tuple([r[z]['InstanceId'],
-                                r['RouteTableId'],
-                                s['SubnetId'],
-                                2]))  
-  
-    #add new RTs for any subnets that are not in the table. mark the GWs as NoGW and index at 3 so that we know that we need to add new routes
-    subnets1=ec2.describe_subnets(Filters=[{'Name':"subnet-id",'Values':list(set(M[2]|set(inputsubnet)))}])
-    subnets2={}
-    for s in subnets1['Subnets']:
-        subnets2.add({s['SubnetId']:s})
-    elb=boto3.client('elb')
-    vpcid=elb.describe_load_balancers(LoadBalancerNames=[elbname])['LoadBalancerDescriptions'][0]['VpcId']
-    for sub in Inputsubnets:
-        if not (sub in [m[2] for m in M]):
-            if subnets2['sub']['VpcId']==vpcid:
-                RTforS=ec2.create_route_table(VpcId=vpcid)['RouteTable']['RouteTableId']
-                ec2.associate_route_table(SubnetId=sub, RouteTableId=RTforS)
-                print ('created route table ',RTforS,' and associated it with subnet ',sub)
-                M.append(tuple(['NoGW',RTforS,sub],3)) 
-            else:
-                print('Subnet ', sub, ' is in VPC ', subnet[sub][VpcId] ,' which is not in the same vpc as your gateways: (',vpcid, '). Ignoring!')
-    
-    # Convert to a list and add AZ info into table
-    MM=[list(n) for n in set(M)]
-    for r in MM:
-        r.insert(3,subnets2[r[2]]['AvailabilityZone'])
 
-    return MM
-            
-    
 def RouteSwitchv2(elbname,inputsubnets,Routetables):
      gwtable=get_GWs_by_LB(elbname)
      if sum([1 for g in gwtable if g[1]=='InService'])>0: 
@@ -91,8 +37,77 @@ def RouteSwitchv2(elbname,inputsubnets,Routetables):
      
      else:
          print ("No GWs are up. Quiting")
+     return 'finished execuring'
+                 
 
-         
+def get_GWs_by_LB(elbname):
+    """retrieves fron AWS all the GWs that are associated with an elb and arranges in a GW, GW health, AZ, VPC,eth0 and eth1 table
+    """
+    M=[]
+    elb=boto3.client('elb')
+    ec2=boto3.client("ec2")
+    ElbGW=elb.describe_instance_health(LoadBalancerName=elbname)
+    GWs=ec2.describe_instances(Filters=[{"Name":"instance-id", "Values":[x['InstanceId'] for x in ElbGW['InstanceStates']]}])
+    for re in GWs['Reservations']:
+        for ins in re['Instances']:
+            M.append([ins['InstanceId'], [y['State'] for y in ElbGW['InstanceStates'] if y['InstanceId']==ins['InstanceId']].pop(),ins['Placement']['AvailabilityZone'],ins['VpcId'],sorted([[eni['Attachment']['DeviceIndex'],eni['NetworkInterfaceId']] for eni in ins['NetworkInterfaces']])])            
+    return M
+
+            
+def createGRSAZ(gwtable,inputsubnets,Routetargets):
+    #find all the routing tables already associated with any healthy gws and their associated subnets
+    ec2=boto3.client("ec2")
+    rt2=ec2.describe_route_tables(Filters=[{'Name':'association.subnet-id','Values':inputsubnets}])
+    M=[]
+    for r in rt2['RouteTables']: 
+        if set(Routetargets)<=set([rr['DestinationCidrBlock'] for rr in r['Routes'] if 'InstanceId' in rr.keys() and rr['InstanceId'] in [g[0] for g in gwtable if g[1]=='InService']]):
+            for s in r['Associations']:
+                z=min([n for n in range(len(r['Routes'])) if 'InstanceID' in r[n].keys() and r[n]['InstanceId'] in [g[0] for g in gwtable]])
+                M.append(tuple([r[z]['InstanceId'],
+                                    r['RouteTableId'],
+                                    s['SubnetId'],
+                                    1]))
+    
+        # add route tables that have the routes but no live GWs with index 2....we'll reuse these RTs and routes
+        elif set(Routetargets)<=set([rr['DestinationCidrBlock'] for rr in r['Routes']]):
+            for s in r['Associations']:
+               z=min([n for n in range(len(r['Routes'])) if 'InstanceId' in r[n].keys() and r[n]['InstanceId'] in [g[0] for g in gwtable]])
+               M.append(tuple([r[z]['InstanceId'],
+                                r['RouteTableId'],
+                                s['SubnetId'],
+                                2]))  
+  
+    #add new RTs for any subnets that are not in the table. mark the GWs as NoGW and index at 3 so that we know that we need to add new routes
+    subnets1=ec2.describe_subnets(Filters=[{'Name':"subnet-id",'Values':list(set([m[2] for m in M])|set(inputsubnets))}])
+    subnets2={s['SubnetId']:s for s in subnets1['Subnets']}
+    elb=boto3.client('elb')
+    vpcid=elb.describe_load_balancers(LoadBalancerNames=[elbname])['LoadBalancerDescriptions'][0]['VPCId']
+    for sub in inputsubnets:
+        if not (sub in [m[2] for m in M]):
+            if subnets2[sub]['VpcId']==vpcid:
+                rass=[]
+                for rt in rt2['RouteTables']:
+                    for ass in rt['Associations']:
+                        if ass['SubnetId']==sub:
+                            rass.append(ass['RouteTableAssociationId'])
+                if len(rass)>0:
+                    ec2.disassociate_route_table(AssociationId=rass.pop())
+                    print('removed RT association from subnet ', sub)
+                RTforS=ec2.create_route_table(VpcId=vpcid)['RouteTable']['RouteTableId']
+                ec2.associate_route_table(SubnetId=sub, RouteTableId=RTforS)
+                print ('created route table ',RTforS,' and associated it with subnet ',sub)
+                M.append(tuple(['NoGW',RTforS,sub,3])) 
+            else:
+                print('Subnet ', sub, ' is in VPC ', subnets2[sub]['VpcId'] ,' which is not in the same vpc as your gateways: (',vpcid, '). Ignoring!')
+    
+    # Convert to a list and add AZ info into table
+    MM=[list(n) for n in set(M)]
+    for r in MM:
+        r.insert(3,subnets2[r[2]]['AvailabilityZone'])
+
+    return MM
+            
+
 def OptimalGWforRT(rt,gwtable,grsaz):
     
     response='Current'
@@ -125,13 +140,13 @@ def OptimalGWforRT(rt,gwtable,grsaz):
              print('Although served by a gw outside its AZ, no gw is sufficiently better to warrant a gw switch for route table ',rt) 
                
    
-    elif ((RTisUp and not RTinAZ ) or not RTIsUP) and sum([1 for x in InAZGWs])>0:
+    elif ((RTIsUp and not RTinAZ ) or not RTIsUp) and sum([1 for x in InAZGWs])>0:
          print('route ', rt, 'is not servered by GW in the right AZ and there are alternative GWs in AZ.')
          M=[[GWSubnetCount[x[0]],x[0]] for x in InAZGWs]
          response=min(M)[1]
        
    
-    elif not RTIsUP:
+    elif not RTIsUp:
        print('route ', rt, 'has GWs OutofService or is missing routes. There are GWs in Service outside its AZ')      
        M=[[GWSubnetCount[x[0]],x[0]] for x in gwtable if x[1]=='InService']
        response=min(M)[1]
@@ -139,22 +154,7 @@ def OptimalGWforRT(rt,gwtable,grsaz):
     
     return response
     
-    
    
-
-def get_GWs_by_LB(x):
-    """retrieves fron AWS all the GWs that are associated with an elb and arranges in a GW, GW health, AZ, VPC,eth0 and eth1 table
-    """
-    M=[] 
-    elb=boto3.client('elb')
-    ec2=boto3.client("ec2")
-    ElbGW=elb.describe_instance_health(LoadBalancerName=x)
-    GWs=ec2.describe_instances(Filters=[{"Name":"instance-id", "Values":[x['InstanceId'] for x in ElbGW['InstanceStates']]}])
-    for re in GWs['Reservations']:
-        for ins in re['Instances']:
-            M.append([ins['InstanceId'], [y['State'] for y in ElbGW['InstanceStates'] if y['InstanceId']==ins['InstanceId']].pop(),ins['Placement']['AvailabilityZone'],ins['VpcId'],sorted([[eni['Attachment']['DeviceIndex'],eni['NetworkInterfaceId']] for eni in ins['NetworkInterfaces']])])            
-    return M
-
 
 
 
@@ -188,14 +188,14 @@ def ReplaceGWforRTinAWS (gwo,gwi,grsaz,rtid,gwtable):
     """changes one GW for another in the all the routes of a given route table in AWS
     """
     ec2=boto3.client('ec2')
-    rtd=ec2.describe_route_tables(RouteTableIds=[rtid])
-    if [g[3] for g in grsaz if g[0]==gwo and g[1]==rtid].pop()<3 :
-         for s in routetargets
-             response=ec2.replace_route(DestinationCidrBlock=s,RouteTableId=rtid,NetworkInterfaceId=[gw[4][len(gw[4])-1][1] for gw in gwtable if gw[0]==gwi].pop() )
+    # rtd=ec2.describe_route_tables(RouteTableIds=[rtid])
+    if [g[4] for g in grsaz if g[0]==gwo and g[1]==rtid].pop()<3 :
+         for s in Routetargets:
+             ec2.replace_route(DestinationCidrBlock=s,RouteTableId=rtid,NetworkInterfaceId=[gw[4][len(gw[4])-1][1] for gw in gwtable if gw[0]==gwi].pop() )
          print('in route table:', rtid, ' replacing gw: ', gwo,' with gw: ', gwi)
     else:
-        for s in routetargets:
-            response=ec2.create_route(DestinationCidrBlock=s, RouteTableId=rtid, NetworkInterfaceId=[gw[4][len(gw[4])-1][1] for gw in gwtable if gw[0]==gwi].pop())
+        for s in Routetargets:
+            ec2.create_route(DestinationCidrBlock=s, RouteTableId=rtid, NetworkInterfaceId=[gw[4][len(gw[4])-1][1] for gw in gwtable if gw[0]==gwi].pop())
         print('in route table:', rtid, ' added new routes with gw: ', gwi)
        
 def RTsPointingtoDeadGWs(gwtable,grsaz):
@@ -209,5 +209,4 @@ def RTsPointingtoDeadGWs(gwtable,grsaz):
                 S.update({r:M})          
     return S
 
-            
-                
+             
