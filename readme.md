@@ -32,6 +32,4 @@ The way the script works is to maintain for each protected subnet a route table 
 ### Note to consider
 currently Cloudwatch alerts must aggregate events at minimal time resultion of one minute. Thus this method of controlling routes will typically lag by one minute after a gateway first becomes "OutofService". More immdiate ways to trigger the the function RouteSwitchv2(elbname) would result in a more timely route modification
 
-elbname='Check-Poi-ElasticL-1F7NSG2C2RFMJ'
-inputsubnets=['subnet-f8b58b9d','subnet-1354e55a','subnet-b85480e2','subnet-cbad6990','subnet-f8bxxxxx']
-Routetargets=['0.0.0.0/0','192.168.2.0/29']
+
