@@ -30,14 +30,14 @@ def RouteSwitchv2(elbname,inputsubnets,Routetargets):
              gwi=OptimalGWforRT(rt,gwtable,grsaz)
              if gwi != 'Current':
                  for g in set([g[0] for g in grsaz if g[1]==rt]):
-                    ReplaceGWforRTinAWS(g,gwi,grsaz,rt,gwtable)
+                    ReplaceGWforRTinAWS(g,gwi,grsaz,rt,gwtable,Routetargets)
                     grsaz=ReplaceGWsforRTinGRSAZ(g,gwi,grsaz,rt)
              else:
                  print('route table ',rt, ' is already optimal in using the gateway: ', set([r[0] for r in grsaz if r[1]==rt]))
      
      else:
          print ("No GWs are up. Quiting")
-     return 'finished execuring'
+     return 'finished executing'
                  
 
 def get_GWs_by_LB(elbname):
@@ -194,7 +194,7 @@ def ReplaceGWsforRTinGRSAZ(gwo,gwi,grsaz,rtid):
             r[0]=gwi
     return M
        
-def ReplaceGWforRTinAWS (gwo,gwi,grsaz,rtid,gwtable):
+def ReplaceGWforRTinAWS (gwo,gwi,grsaz,rtid,gwtable,Routetargets):
     """changes one GW for another in the all the routes of a given route table in AWS
     """
     ec2=boto3.client('ec2')
