@@ -17,9 +17,12 @@ The way the script works is to maintain for each protected subnet a route table 
 - Create a lambda function that uses the script routeswitchbysubnet.py, and have it triggered by notifications to that SNS topic 
 - Change the value of the following variables that you see in the begining of the script:
     - *elbname*: the name of the loadbalancer that's monitoring your gateways (e.g., 'myELB')
-    - *inputsubnets*: the list of subnets that needs to route through the gateways (e.g., ['subnet-1','subnet-2'])
+    - *inputsubnets*: the list of subnets that needs to route through the gateways. E.g., ['subnet-1','subnet-2'].
+	- *Routetargets*: the list of prefixes traffic to which needs to flow through the gateways. E.g., ['0.0.0.0/0', '192.168.1.0/24']
 
-- By default the script uses a more advanced GW matching algorithm for each route. If you want to revert to an earlier version choose a value other than 1 to the param UseFancyDecision
+
+### Note to consider
+currently Cloudwatch alerts must aggregate events at minimal time resultion of one minute. Thus this method of controlling routes will typically lag by one minute after a gateway first becomes "OutofService". More immdiate ways to trigger the the function RouteSwitchv2(elbname) would result in a more timely route modification
 
 
 ### What the script does
@@ -29,7 +32,6 @@ The way the script works is to maintain for each protected subnet a route table 
 3) for each such route table, it finds what's the AZ that's the most common among all the subnets that use this route table
 4) for each such route table, it's trying to see if there's a gateway that's better matching for it, given the AZs of the subnets using the route table, and the load on the GW
 
-### Note to consider
-currently Cloudwatch alerts must aggregate events at minimal time resultion of one minute. Thus this method of controlling routes will typically lag by one minute after a gateway first becomes "OutofService". More immdiate ways to trigger the the function RouteSwitchv2(elbname) would result in a more timely route modification
+![Alt Routeswitch diagram](/RouteTableRedistributionAlg.jpg?raw=true "RouteSwitchv2 flow")
 
 

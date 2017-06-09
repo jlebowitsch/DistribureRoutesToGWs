@@ -23,6 +23,10 @@ def lambda_handler(event, context):
     
 
 def RouteSwitchv2(elbname,inputsubnets,Routetargets):
+    """ this is the main function. it sees if there are any InService GWs availabile and if there are it goes route table by route table 
+    (which, one level below translates to subnet by subnet, to the extent that they don't already share an RT) and sees if the GW associated 
+    with it can be optimized, and if it does, it switches the GWs in the RT
+    """
      gwtable=get_GWs_by_LB(elbname)
      if sum([1 for g in gwtable if g[1]=='InService'])>0: 
          grsaz=createGRSAZ(gwtable,inputsubnets,Routetargets)
@@ -33,7 +37,7 @@ def RouteSwitchv2(elbname,inputsubnets,Routetargets):
                     ReplaceGWforRTinAWS(g,gwi,grsaz,rt,gwtable,Routetargets)
                     grsaz=ReplaceGWsforRTinGRSAZ(g,gwi,grsaz,rt)
              else:
-                 print('route table ',rt, ' is already optimal in using the gateway: ', set([r[0] for r in grsaz if r[1]==rt]))
+                 print('route table ',rt, ' is already optimal in using the gateway(s): ', set([r[0] for r in grsaz if r[1]==rt]))
      
      else:
          print ("No GWs are up. Quiting")
@@ -41,7 +45,7 @@ def RouteSwitchv2(elbname,inputsubnets,Routetargets):
                  
 
 def get_GWs_by_LB(elbname):
-    """retrieves fron AWS all the GWs that are associated with an elb and arranges in a GW, GW health, AZ, VPC,eth0 and eth1 table
+    """retrieves fron AWS all the GWs that are associated with an elb and arranges in a GW, GW health, AZ, VPC,eth0 and eth1 table, and the sunbnet of the instance (of eth0 when there's more than one IF)
     """
     M=[]
     elb=boto3.client('elb')
@@ -55,6 +59,13 @@ def get_GWs_by_LB(elbname):
 
             
 def createGRSAZ(gwtable,inputsubnets,Routetargets):
+    """ this creates a table, a list of lists, with a row for each subnet. Each row has a 
+    GW name (or NoGW), a route table name, a subnet name, the subnet AZ and a numeric indicator whether the Route table has all the routes and is 
+    pointing to InService  GWs (1), or else has all the routes (2), or else it has no routes (3). In case 2 the GW name will be NoGW, 
+    because the GWs that are set against the routes are not InService. In case 3 the function itself will have created a new Route table and assign
+    it to the subnet before adding it to the table
+    
+    """
     
     ec2=boto3.client("ec2")
     elb=boto3.client('elb')
@@ -119,6 +130,18 @@ def createGRSAZ(gwtable,inputsubnets,Routetargets):
             
 
 def OptimalGWforRT(rt,gwtable,grsaz):
+    """ this function decides which gw is optimized for the given route table. If the route table is not in good standing, i.e., it doesn't
+    have all the routes or it's pointing to GWs that are not InService, then it returns the GW with the minimal number of subnets associated, 
+    in the same AZ, if one exists, or else accross all the GWs. 
+    If the RT is already in good standing , then 
+     - if it's pointing to GWs that are all in the same AZ as most of the subnets associated with the RT, it evaluates if after dropping this 
+    RT from any of the GWs pointed to by the RT, that GW will have still more than the proportion of subnets in the AZ a gw should have. if it does then
+    the function returns the GW with the minimal number of subnets in that AZ. 
+     - If the RT is pointing to GWs outside its dominant AZ, then  
+           - if there is a GW in the AZ, it will reassign it to the one in the AZ with the minimal number of subnets associated with it
+           - if there is no GW in this AZ it evaluates whether by dropping this RT from any of the GWs associated with it, the GW will still have more
+               than it's proportional share. if it would then it assigns the RT to the GW with the least subnets associated with it
+    """   
     
     response='Current'
     DRT=Dominant_AZ(grsaz)
