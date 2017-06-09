@@ -32,5 +32,6 @@ currently Cloudwatch alerts must aggregate events at minimal time resultion of o
 3) for each such route table, it finds what's the AZ that's the most common among all the subnets that use this route table
 4) for each such route table, it's trying to see if there's a gateway that's better matching for it, given the AZs of the subnets using the route table, and the load on the GW
 
-![Alt Routeswitch diagram](/RouteTableRedistributionAlg.jpg.jpg?raw=true "RouteSwitchv2 flow")
+![Alt Routeswitch diagram](/RouteTableRedistributionAlg.jpg?raw=true "RouteSwitchv2 flow")
+
 
