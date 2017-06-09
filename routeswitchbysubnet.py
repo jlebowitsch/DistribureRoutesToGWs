@@ -27,8 +27,8 @@ def RouteSwitchv2(elbname,inputsubnets,Routetargets):
     (which, one level below translates to subnet by subnet, to the extent that they don't already share an RT) and sees if the GW associated 
     with it can be optimized, and if it does, it switches the GWs in the RT
     """
-     gwtable=get_GWs_by_LB(elbname)
-     if sum([1 for g in gwtable if g[1]=='InService'])>0: 
+    gwtable=get_GWs_by_LB(elbname)
+    if sum([1 for g in gwtable if g[1]=='InService'])>0: 
          grsaz=createGRSAZ(gwtable,inputsubnets,Routetargets)
          for rt in set([r[1] for r in grsaz]):
              gwi=OptimalGWforRT(rt,gwtable,grsaz)
@@ -39,9 +39,9 @@ def RouteSwitchv2(elbname,inputsubnets,Routetargets):
              else:
                  print('route table ',rt, ' is already optimal in using the gateway(s): ', set([r[0] for r in grsaz if r[1]==rt]))
      
-     else:
+    else:
          print ("No GWs are up. Quiting")
-     return 'finished executing'
+    return 'finished executing'
                  
 
 def get_GWs_by_LB(elbname):
@@ -151,9 +151,10 @@ def OptimalGWforRT(rt,gwtable,grsaz):
     InAZGWs=[g for g in gwtable if g[1]=='InService' and g[2]==DRT[rt]] # the set of GWs Inseervice in the AZ
     RTSubnetCount={r:sum([1 for rr in grsaz if rr[1]==r]) for r in set([rr[1] for rr in grsaz])} 
     GWSubnetCount={g:sum([1 for rr in grsaz if rr[0]==g]) for g in [gg[0] for gg in gwtable]}
+    GWSubnetCountInAZ={g:sum([1 for rr in grsaz if rr[0]==g and DRT[rr[1]]==DRT[rt]]) for g in [gg[0] for gg in gwtable]}
     AZRTSubnetCount=sum([RTSubnetCount[r] for r in DRT if DRT[r]==DRT[rt]])
     if RTIsUp and RTinAZ and sum([1 for x in InAZGWs if not x[0] in GWsofRT])>0:                                               #  if rt has live gws: if rt is in az and has others in az:
-        if sum([1 for g in GWsofRT if (GWSubnetCount[g]-RTSubnetCount[rt]) > AZRTSubnetCount/len(InAZGWs)])>0:      # if there are "busier than than average GWs" associated with the route table
+        if sum([1 for g in GWsofRT if (GWSubnetCountInAZ[g]-RTSubnetCount[rt]) > AZRTSubnetCount/len(InAZGWs)])>0:      # if there are "busier than than average GWs" associated with the route table
             print('route ', rt, 'is servered by GW in the right AZ but they are busier than everage.')
             M=[[GWSubnetCount[x[0]],x[0]] for x in InAZGWs if (GWSubnetCount[x[0]] + RTSubnetCount[rt]) < max([GWSubnetCount[x] for x in GWsofRT])]
             if len(M)>0:
