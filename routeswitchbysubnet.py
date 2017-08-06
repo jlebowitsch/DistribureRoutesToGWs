@@ -57,7 +57,8 @@ def get_GWs_by_LB(elbname):
         for ins in re['Instances']:
             M.append([ins['InstanceId']
                 , [y['State'] for y in ElbGW['InstanceStates'] if y['InstanceId']==ins['InstanceId']].pop()
-                , ins['Placement']['AvailabilityZone'],ins['VpcId']
+                , ins['Placement']['AvailabilityZone']
+                ,ins['VpcId']
                 , sorted([[eni['Attachment']['DeviceIndex']
                     ,eni['NetworkInterfaceId']
                     ,eni['SourceDestCheck']] for eni in ins['NetworkInterfaces']])
