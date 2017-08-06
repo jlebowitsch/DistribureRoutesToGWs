@@ -6,7 +6,7 @@
 # 3. "Routetargets" ....this is the list of route prefixes for destinations you want to be routed through the gateways.  
 
 elbname='myELB'
-inputsubnets=['subnet-135xxxxx','subnet-cbaxxxxx','subnet-f8bxxxxx']
+inputsubnets=['subnet-xxxxxx','subnet-yyyyy','subnet-zzzzzzz']
 Routetargets=['0.0.0.0/0','192.168.2.0/29']
 
 # do not change below
@@ -29,8 +29,9 @@ def RouteSwitchv2(elbname,inputsubnets,Routetargets):
     """
     gwtable=get_GWs_by_LB(elbname)
     if sum([1 for g in gwtable if g[1]=='InService'])>0: 
-         grsaz=createGRSAZ(gwtable,inputsubnets,Routetargets)
-         for rt in set([r[1] for r in grsaz]):
+        DisableSourceDestCheck(gwtable) 
+        grsaz=createGRSAZ(gwtable,inputsubnets,Routetargets)
+        for rt in set([r[1] for r in grsaz]):
              gwi=OptimalGWforRT(rt,gwtable,grsaz)
              if gwi != 'Current':
                  for g in set([g[0] for g in grsaz if g[1]==rt]):
@@ -54,9 +55,28 @@ def get_GWs_by_LB(elbname):
     GWs=ec2.describe_instances(Filters=[{"Name":"instance-id", "Values":[x['InstanceId'] for x in ElbGW['InstanceStates']]}])
     for re in GWs['Reservations']:
         for ins in re['Instances']:
-            M.append([ins['InstanceId'], [y['State'] for y in ElbGW['InstanceStates'] if y['InstanceId']==ins['InstanceId']].pop(),ins['Placement']['AvailabilityZone'],ins['VpcId'],sorted([[eni['Attachment']['DeviceIndex'],eni['NetworkInterfaceId']] for eni in ins['NetworkInterfaces']]),ins['SubnetId']])            
+            M.append([ins['InstanceId']
+                , [y['State'] for y in ElbGW['InstanceStates'] if y['InstanceId']==ins['InstanceId']].pop()
+                , ins['Placement']['AvailabilityZone'],ins['VpcId']
+                , sorted([[eni['Attachment']['DeviceIndex']
+                    ,eni['NetworkInterfaceId']
+                    ,eni['SourceDestCheck']] for eni in ins['NetworkInterfaces']])
+                , ins['SubnetId']])            
     return M
 
+
+def DisableSourceDestCheck(gwtable):
+    """ takes a gwtable and makes sure all the ENIs have source dest checks disabled
+    """
+    ec2=boto3.client("ec2")
+    for gw in gwtable:
+        for networkif in gw[4]:
+            if networkif[2]==True:
+                ec2.modify_network_interface_attribute(
+                        NetworkInterfaceId=networkif[1],
+                        SourceDestCheck={'Value':False})
+                print('SourceDestCheck on ENI ', networkif[1],' was set to false')
+                
             
 def createGRSAZ(gwtable,inputsubnets,Routetargets):
     """ this creates a table, a list of lists, with a row for each subnet. Each row has a 
