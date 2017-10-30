@@ -9,7 +9,7 @@ The way the script works is to maintain for each protected subnet a route table 
 ### Prerequisites and installation
 
 - Have gateways (e.g., Check Point vSEC gateways) up and running as EC2 instances.  
-- if the gateways has more than one ENI, make sure that the gateways know to route to the subnets behind them through ethN where N is maximal. E.g., if the gateway has eth0 and eth1, make sure that each of the gateways knows that traffic to each of the protected subnets should be forwarded through eth1
+- if the gateways have more than one ENI, make sure that they know to route to the subnets behind them through ethN where N is maximal. E.g., if the gateway has eth0 and eth1, make sure that each of the gateways knows that traffic to each of the protected subnets should be forwarded through eth1
 - Set up an ELB to monitor the gateways. (the gateways can be part of an Autoscaling Group or not)
 - Create an SNS topic and associate it with the following:
     - cloudwatch alarm associated with the ELB that will send notification if the number of unhealthy instances is larger than 0. Add to the alarm a notification, to the same topic, if the status changes back to OK
