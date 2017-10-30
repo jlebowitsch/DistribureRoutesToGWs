@@ -20,7 +20,7 @@ The way the script works is to maintain for each protected subnet a route table 
 | variable name | variable value| example |
 |---|---|---|
 | elbname | the name of the loadbalancer that's monitoring your gateways| myELB |
-| inputsubnets | comma delimited list of the subnets that needs to route through the gateways| subnet-xxx1, subnet-yyy2 |
+| inputsubnets | comma delimited list of the subnets that need to route through the gateways| subnet-xxx1, subnet-yyy2 |
 | routetargets | comma delimited list of prefixes traffic to which needs to flow through the gateways | 0.0.0.0/0, 192.168.1.0/24 |
 
 
