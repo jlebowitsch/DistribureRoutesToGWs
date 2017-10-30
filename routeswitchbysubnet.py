@@ -1,27 +1,16 @@
 
-###########################################################################################################################################################
-# to run the script in Lambda please change the value of  the following three  parameters
-# 1. "elbname" ...this is the name of the ELB monitoring your gateway
-# 2. "inputsubnets"  ....this is the list of subnets behind the gateways
-# 3. "Routetargets" ....this is the list of route prefixes for destinations you want to be routed through the gateways.  
-
-elbname='myELB'
-inputsubnets=['subnet-xxxxxx','subnet-yyyyy','subnet-zzzzzzz']
-Routetargets=['0.0.0.0/0','192.168.2.0/29']
-
-# do not change below
-##########################################################################################################################################################
-
-
 
 import boto3
+import os
 
-
+elbname=os.environ['elbname']
+inputsubnets=list(map(str.strip, os.environ['inputsubnets'].split(',')))
+Routetargets=list(map(str.strip, os.environ['routetargets'].split(',')))
+ 
 def lambda_handler(event, context):
     RouteSwitchv2(elbname,inputsubnets,Routetargets)
     return 'Hello from Lambda'
-    
-
+   
 def RouteSwitchv2(elbname,inputsubnets,Routetargets):
     """ this is the main function. it sees if there are any InService GWs availabile and if there are it goes route table by route table 
     (which, one level below translates to subnet by subnet, to the extent that they don't already share an RT) and sees if the GW associated 
@@ -58,7 +47,7 @@ def get_GWs_by_LB(elbname):
             M.append([ins['InstanceId']
                 , [y['State'] for y in ElbGW['InstanceStates'] if y['InstanceId']==ins['InstanceId']].pop()
                 , ins['Placement']['AvailabilityZone']
-                ,ins['VpcId']
+                , ins['VpcId']
                 , sorted([[eni['Attachment']['DeviceIndex']
                     ,eni['NetworkInterfaceId']
                     ,eni['SourceDestCheck']] for eni in ins['NetworkInterfaces']])
@@ -196,7 +185,7 @@ def OptimalGWforRT(rt,gwtable,grsaz):
                
    
     elif ((RTIsUp and not RTinAZ ) or not RTIsUp) and sum([1 for x in InAZGWs])>0:
-         print('route ', rt, 'is not servered by GW in the right AZ and there are alternative GWs in AZ.')
+         print('route ', rt, 'is not served by GW in the right AZ and there are alternative GWs in AZ.')
          M=[[GWSubnetCount[x[0]],x[0]] for x in InAZGWs]
          response=min(M)[1]
        
