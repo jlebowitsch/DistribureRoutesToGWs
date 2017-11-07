@@ -10,7 +10,7 @@ Routetargets = list(map(str.strip, os.environ['routetargets'].split(',')))
 
 def lambda_handler(event, context):
     RouteSwitchv2(elbname, inputsubnets, Routetargets)
-    return 'Hello from Lambda'
+    return 'The function completed. This program comes with ABSOLUTELY NO WARRANTY; This is free software, and you are welcome to redistribute it'
 
 
 def RouteSwitchv2(elbname, inputsubnets, Routetargets):
