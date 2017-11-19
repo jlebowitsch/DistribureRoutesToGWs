@@ -23,11 +23,9 @@ The way the script works is to maintain for each protected subnet a route table 
 | inputsubnets | comma delimited list of the subnets that need to route through the gateways| subnet-xxx1, subnet-yyy2 |
 | routetargets | comma delimited list of prefixes traffic to which needs to flow through the gateways | 0.0.0.0/0, 192.168.1.0/24 |
 
-### Installing the function using the routeredistibution.yml files
-The routeredistribution.yml file conforms to [AWS SAM](https://github.com/awslabs/serverless-application-model) specifications. Deploying it will result in the creation of the lambda function, a role and an SNS topic. you will still need to define cloudwatch events on your loadbalancers and publish them in that topic. To deploy using the AWS CLI run:
+### Installing the function using the routeredistibution.yaml files
+The routeredistribution.yaml file conforms to [AWS SAM](https://github.com/awslabs/serverless-application-model) specifications. Deploying it will result in the creation of the lambda function, a role and an SNS topic. you will still need to define cloudwatch events on your loadbalancers and publish them in that topic. To deploy using this deployment script and the AWS CLI, download the yaml to your computer and run according to this example:
 
-aws cloudformation deploy --template-file <path to where you downloaded routeredistribution.yaml> --stack-name <choose a name> --capabilities CAPABILITY_IAM --parameter-overrides Elbname=<your ELB> RoutePrefixes=<your list of route prefixes> SubnetList=<your list of protected subnets>
-e.g.,
 
 aws cloudformation deploy --template-file C:\Users\lebowits\Desktop\routeredistribution.yaml --stack-name abracadabrars --capabilities CAPABILITY_IAM --parameter-overrides Elbname=myelv RoutePrefixes=0.0.0.0/0,192.168.1.0/24 SubnetList=subnet-1234,subnet-2345
 
